@@ -24,23 +24,15 @@ jobs:
       - run: npx cap sync android
       - name: Compilation
         run: cd android && ./gradlew assembleRelease --no-daemon
-      - name: Signature
-        env:
-          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          echo "$KS_B64" | base64 -d > release.jks
-          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          $BT/zipalign -f -p 4 android/app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-          $BT/apksigner sign --ks release.jks --ks-pass env:KS_PASS --key-pass env:KS_PASS --out Caravane-Dentaire.apk aligned.apk
-          $BT/apksigner verify Caravane-Dentaire.apk
+      - name: Préparer le fichier
+        run: cp android/app/build/outputs/apk/release/app-release-unsigned.apk Caravane-Dentaire-non-signe.apk
       - uses: actions/upload-artifact@v4
-        with: { name: Caravane-Dentaire-apk, path: Caravane-Dentaire.apk }
+        with: { name: Caravane-Dentaire-apk, path: Caravane-Dentaire-non-signe.apk }
       - name: Publication
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Caravane Dentaire (dernière version)
-          body: "Fichier à installer sur Android : Caravane-Dentaire.apk"
-          files: Caravane-Dentaire.apk
+          body: "Version non signée (la version à installer est envoyée signée séparément)."
+          files: Caravane-Dentaire-non-signe.apk
           make_latest: true
