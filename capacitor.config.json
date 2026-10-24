@@ -1,0 +1,6 @@
+{
+  "appId": "ma.caravane.dentaire",
+  "appName": "Caravane Dentaire",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}
