@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Caravane Dentaire</title>
-<meta name="theme-color" content="#0E7C86">
+<meta name="theme-color" content="#FFFFFF">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Caravane">
@@ -16,13 +16,13 @@
   /* Mobile-first : en-tête, contenu défilant, barre d'onglets en bas */
   :root{
     --bg:#F3F5F4; --card:#FFFFFF; --ink:#18282B; --muted:#5E6E6C; --line:#DDE4E2; --field:#F8FAF9;
-    --teal:#0E7C86; --teal-2:#1BB3C1; --teal-soft:#E1F3F4; --on-teal:#FFFFFF;
+    --teal:#1A5FC0; --teal-2:#15CEF4; --teal-soft:#E4F1FD; --on-teal:#FFFFFF; --sun:#F2E62A; --hdr:#FFFFFF; --hdr-ink:#173F86;
     --alert:#A63A2B; --alert-soft:#FBE7E2; --warn:#8A5A00; --warn-soft:#FFF2D6; --ok:#2E7D4F; --ok-soft:#E3F3E9;
     --radius:12px; --font:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
   @media (prefers-color-scheme: dark){
     :root{ --bg:#0F1718; --card:#182325; --ink:#E3ECEA; --muted:#9AABA8; --line:#2A3A3C; --field:#132022;
-      --teal:#2AA9B4; --teal-2:#43C5D1; --teal-soft:#123437; --on-teal:#04272A;
+      --teal:#6FA8F5; --teal-2:#3FD6F7; --teal-soft:#14294A; --on-teal:#06183A; --sun:#E8DC3A; --hdr:#182325; --hdr-ink:#CFE2FF;
       --alert:#F08A78; --alert-soft:#3A1E1A; --warn:#E8B85A; --warn-soft:#352A12; --ok:#6CCB93; --ok-soft:#14301F; color-scheme:dark; }
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
@@ -30,10 +30,13 @@
   body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--font); font-size:16px; line-height:1.4;}
   button,input,select,textarea{font:inherit; color:inherit;}
   [hidden]{display:none !important;}
-  header.top{position:sticky; top:0; z-index:10; background:var(--teal); color:var(--on-teal);
-    padding:calc(env(safe-area-inset-top,0px) + 10px) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));}
-  header.top .t{font-weight:700; font-size:17px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-  header.top .s{font-size:12.5px; opacity:.85;}
+  header.top{position:sticky; top:0; z-index:10; background:var(--hdr); color:var(--hdr-ink); border-bottom:4px solid var(--teal-2);
+    display:flex; align-items:center; gap:12px;
+    padding:calc(env(safe-area-inset-top,0px) + 8px) max(16px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px));}
+  header.top .logo{height:44px; width:auto; flex:none; border-radius:6px; background:#fff;}
+  header.top .txt{min-width:0;}
+  header.top .t{font-weight:750; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  header.top .s{font-size:12.5px; color:var(--muted);}
   main{padding:14px max(16px,env(safe-area-inset-right,0px)) calc(90px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px)); max-width:760px; margin:0 auto;}
   nav.tabs{position:fixed; left:0; right:0; bottom:0; z-index:10; display:grid; grid-template-columns:repeat(5,1fr);
     background:var(--card); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom,0px);}
@@ -103,7 +106,7 @@
 </style>
 </head>
 <body>
-<header class="top"><div class="t" id="hdr-t">Caravane dentaire</div><div class="s" id="hdr-s"></div></header>
+<header class="top"><img class="logo" src="logo.png" alt="Enfance Sourire"><div class="txt"><div class="t" id="hdr-t">Caravane dentaire</div><div class="s" id="hdr-s"></div></div></header>
 <main id="view"></main>
 <nav class="tabs" id="tabs">
   <button data-tab="bilan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Bilan</button>

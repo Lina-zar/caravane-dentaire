@@ -1,6 +1,6 @@
 /* Caravane Dentaire — application hors ligne (PWA). Données stockées sur le téléphone. */
 'use strict';
-const VERSION = '1.0';
+const VERSION = '1.1';
 const KEY = 'caravane-dentaire-v1';
 
 /* ---------- Listes de référence ---------- */
@@ -63,7 +63,7 @@ function defaultState(){
     version: VERSION,
     reglages: { poste: '', refDepart: 1 },
     caravane: { nom: 'Caravane bucco-dentaire Khouribga et régions', type: 'Ponctuelle – plusieurs jours', ville: 'Khouribga et régions',
-      debut: '2026-10-26', fin: '2026-10-30', association: '', responsable: '', tel: '' },
+      debut: '2026-10-26', fin: '2026-10-30', association: 'Enfance Sourire', responsable: '', tel: '' },
     lieux: [{ code: '01', nom: '', type: 'École', ville: 'Khouribga', contact: '', tel: '' }],
     planning: ['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30'].map(d => ({ id: 'pl-' + d, date: d, lieu: '', horaires: '', resp: '' })),
     participants: [], enfants: [], actes: [], remises: [],
@@ -78,6 +78,7 @@ function load(){
   try{ const raw = localStorage.getItem(KEY); S = raw ? JSON.parse(raw) : defaultState(); }catch(e){ S = defaultState(); }
   const d = defaultState();
   for (const k of Object.keys(d)) if (S[k] === undefined) S[k] = d[k];
+  if (S.caravane && !S.caravane.association) S.caravane.association = 'Enfance Sourire';
 }
 function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast("Enregistrement impossible : mémoire du téléphone pleine ?"); }
@@ -225,7 +226,7 @@ function viewBilan(v){
   v.querySelector('#share-sum').onclick = () => shareText(resume(st));
 }
 function resume(st){
-  const lines = [`${S.caravane.nom || 'Caravane dentaire'}${filtreJour ? ' — ' + jour(filtreJour) + ' ' + fd(filtreJour) : ''}`,
+  const lines = [`${S.caravane.association ? S.caravane.association + ' — ' : ''}${S.caravane.nom || 'Caravane dentaire'}${filtreJour ? ' — ' + jour(filtreJour) + ' ' + fd(filtreJour) : ''}`,
     `Enfants soignés : ${st.enfants.length}`, `Actes réalisés : ${st.actes.length} (dont ${st.soins.length} soins)`, `Dents soignées : ${st.dents}`,
     `Produits remis : ${st.unites}`, ''];
   countBy(st.actes, a => a.nature).forEach(([k, n]) => lines.push(`• ${k} : ${n}`));
@@ -510,7 +511,7 @@ function workbook(){
   const add = (name, rows) => { const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ '': 'Aucune donnée' }]);
     const keys = Object.keys(rows[0] || { '': '' }); ws['!cols'] = keys.map(k => ({ wch: Math.min(45, Math.max(10, k.length + 2, ...rows.map(r => String(r[k] ?? '').length + 1))) })); XLSX.utils.book_append_sheet(wb, ws, name); };
   const st = stats('');
-  const bil = [{ Indicateur: 'Caravane', Valeur: S.caravane.nom }, { Indicateur: 'Type', Valeur: S.caravane.type }, { Indicateur: 'Période', Valeur: fd(S.caravane.debut) + ' – ' + fd(S.caravane.fin) },
+  const bil = [{ Indicateur: 'Association', Valeur: S.caravane.association || 'Enfance Sourire' }, { Indicateur: 'Caravane', Valeur: S.caravane.nom }, { Indicateur: 'Type', Valeur: S.caravane.type }, { Indicateur: 'Période', Valeur: fd(S.caravane.debut) + ' – ' + fd(S.caravane.fin) },
     { Indicateur: 'Enfants enregistrés', Valeur: S.enfants.length }, { Indicateur: 'Enfants soignés', Valeur: st.enfants.length }, { Indicateur: 'Actes réalisés', Valeur: st.actes.length },
     { Indicateur: 'Soins (hors examen et orientation)', Valeur: st.soins.length }, { Indicateur: 'Dents soignées', Valeur: st.dents },
     { Indicateur: 'Produits remis aux enfants (unités)', Valeur: st.unites }, { Indicateur: 'Distributions groupées (unités)', Valeur: st.distrib },
