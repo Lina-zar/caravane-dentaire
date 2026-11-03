@@ -1,6 +1,6 @@
 /* Caravane Dentaire — application hors ligne (PWA). Données stockées sur le téléphone. */
 'use strict';
-const VERSION = '1.1';
+const VERSION = '1.2';
 const KEY = 'caravane-dentaire-v1';
 
 /* ---------- Listes de référence ---------- */
@@ -109,6 +109,8 @@ function sante(e){
   return out;
 }
 const allergieMed = e => e && /médicamenteuse/i.test(e.allergie || '');
+const lieuDuJour = (d = todayISO()) => (S.planning.find(p => p.date === d && p.lieu) || {}).lieu || '';
+const lieuLabel = c => c + ' ' + (lieuNom(c) || '');
 function nextRef(code){
   let max = (+S.reglages.refDepart || 1) - 1;
   for (const e of S.enfants){ const [n, l] = e.ref.split('/'); if (l === code && +n > max) max = +n; }
@@ -164,7 +166,7 @@ function confirmInline(container, msg, onYes){
 }
 
 /* ---------- Navigation ---------- */
-let tab = 'bilan', pharmaTab = 'stock', filtreJour = '', recherche = '', filtreLieu = '';
+let tab = 'bilan', pharmaTab = 'stock', filtreJour = '', recherche = '', filtreLieu = null;
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; closeAll(); window.scrollTo(0, 0); });
 function render(){
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
@@ -242,6 +244,7 @@ async function shareText(text){
 
 /* ---------- Enfants ---------- */
 function viewEnfants(v){
+  if (filtreLieu === null) filtreLieu = lieuDuJour();
   const q = recherche.trim().toLowerCase();
   const list = S.enfants.filter(e => (!filtreLieu || e.lieu === filtreLieu) && (!q || e.nom.toLowerCase().includes(q) || e.ref.includes(q)))
     .sort((a, b) => (a.lieu + a.ref).localeCompare(b.lieu + b.ref));
@@ -260,10 +263,11 @@ function viewEnfants(v){
   v.querySelector('#add').onclick = () => enfantForm();
 }
 function enfantForm(e){
-  const isNew = !e; e = e || { lieu: filtreLieu || (S.lieux[0] && S.lieux[0].code) || '01' };
+  const isNew = !e; e = e || { lieu: filtreLieu || lieuDuJour() || S.reglages.dernierLieu || (S.lieux[0] && S.lieux[0].code) || '01' };
   if (!S.lieux.length){ toast('Ajoutez d\'abord un lieu dans « Plus » → Lieux.'); return; }
   openSheet(isNew ? 'Nouvel enfant' : 'Modifier ' + e.ref, `<form id="fe">
-    <div class="two">${sel('lieu', 'Lieu', S.lieux.map(l => [l.code, l.code + ' ' + (l.nom || '')]), e.lieu, false)}${field('ref', 'REF', e.ref || nextRef(e.lieu))}</div>
+    <div id="lieu-warn"></div>
+    <div class="two">${sel('lieu', 'Lieu', S.lieux.map(l => [l.code, l.code + ' ' + (l.nom || '')]), e.lieu, false)}${field('ref', 'REF', e.ref || nextRef(e.lieu), 'text', 'readonly')}</div>
     ${field('nom', 'Nom et prénom', e.nom, 'text', 'required autocomplete="off" autocapitalize="characters"')}
     <div class="two">${field('annee', 'Année de naissance', e.annee, 'number', 'inputmode="numeric" min="1990" max="2030"')}${sel('sexe', 'Sexe', SEXES, e.sexe, false)}</div>
     <h3>État général</h3>
@@ -273,13 +277,26 @@ function enfantForm(e){
     ${field('allergiePrecision', "Préciser l'allergie (médicament, aliment…)", e.allergiePrecision)}
     ${area('obs', 'Observation', e.obs)}
     <button class="btn block" type="submit">${isNew ? 'Enregistrer et ajouter un acte' : 'Enregistrer'}</button></form>`, body => {
-    const f = body.querySelector('form'), refIn = f.elements.ref;
-    f.elements.lieu.onchange = () => { if (isNew) refIn.value = nextRef(f.elements.lieu.value); };
+    const f = body.querySelector('form'), refIn = f.elements.ref, warn = body.querySelector('#lieu-warn');
+    let dupOk = false;
+    const checkLieu = () => {
+      const lj = lieuDuJour(), l = f.elements.lieu.value;
+      warn.innerHTML = (isNew && lj && lj !== l) ? `<div class="banner">Attention : le planning d'aujourd'hui indique ${esc(lieuLabel(lj))}. Vérifiez le lieu.</div>` : '';
+    };
+    f.elements.lieu.onchange = () => {
+      const l = f.elements.lieu.value;
+      refIn.value = (!isNew && l === e.lieu) ? e.ref : nextRef(l);
+      checkLieu();
+    };
+    checkLieu();
     f.onsubmit = ev => {
       ev.preventDefault(); const d = formData(f); d.nom = d.nom.trim().toUpperCase(); d.ref = d.ref.trim();
       if (!/^\d{3}\/\d{2}$/.test(d.ref)){ toast('REF au format 001/01'); return; }
       const clash = S.enfants.find(x => x.ref === d.ref && x.id !== e.id);
       if (clash){ toast('Cette REF existe déjà (' + clash.nom + ').'); return; }
+      const twin = S.enfants.find(x => x.id !== e.id && x.nom === d.nom && x.lieu === d.lieu);
+      if (twin && !dupOk){ dupOk = true; warn.innerHTML = `<div class="banner">${esc(d.nom)} existe déjà (${esc(twin.ref)}, ${twin.annee ? 'né(e) en ' + esc(twin.annee) : ''}). Si c'est le même enfant, fermez et ouvrez sa fiche. Sinon, appuyez à nouveau sur Enregistrer.</div>`; body.closest('.panel').scrollTop = 0; return; }
+      S.reglages.dernierLieu = d.lieu;
       if (isNew){ const n = { id: uid(), ...d }; S.enfants.push(n); save(); closeSheet(); enfantDetail(n.ref, true); }
       else { const old = e.ref; Object.assign(e, d);
         if (old !== d.ref){ S.actes.forEach(a => { if (a.ref === old) a.ref = d.ref; }); S.remises.forEach(r => { if (r.ref === old) r.ref = d.ref; }); }
@@ -427,10 +444,33 @@ function participantForm(x){
 /* ---------- Plus ---------- */
 function viewPlus(v){
   const items = [['caravane','La caravane', S.caravane.type || ''],['lieux','Lieux (écoles, centres)', S.lieux.length + ' lieu(x)'],['planning','Planning', S.planning.length + ' journée(s)'],
-    ['actes','Liste des actes', S.actesListe.length + ' actes'],['export','Exporter en Excel', 'Bilan complet à envoyer'],['backup','Sauvegarde et fusion', 'Copier les données vers un autre téléphone'],
+    ['verif','Vérifier les données', 'Lieux, doublons, stock'],['actes','Liste des actes', S.actesListe.length + ' actes'],['export','Exporter en Excel', 'Bilan complet à envoyer'],['backup','Sauvegarde et fusion', 'Copier les données vers un autre téléphone'],
     ['reglages','Ce téléphone', S.reglages.poste || 'Nom du poste, numérotation des REF'],['nouvelle','Nouvelle caravane', 'Vider les enfants et les actes'],['aide','Aide et confidentialité', 'Version ' + VERSION]];
   v.innerHTML = `<div class="list menu">${items.map(([k, l, s]) => `<div class="item" data-k="${k}"><div class="grow"><b>${l}</b><div class="sub">${esc(s)}</div></div><span aria-hidden="true">›</span></div>`).join('')}</div>`;
-  v.querySelectorAll('.item').forEach(i => i.onclick = () => ({ caravane: caravaneForm, lieux: lieuxView, planning: planningView, actes: actesListeView, export: exportExcel, backup: backupView, reglages: reglagesForm, nouvelle: nouvelleCaravane, aide: aideView })[i.dataset.k]());
+  v.querySelectorAll('.item').forEach(i => i.onclick = () => ({ caravane: caravaneForm, lieux: lieuxView, planning: planningView, actes: actesListeView, export: exportExcel, verif: verifView, backup: backupView, reglages: reglagesForm, nouvelle: nouvelleCaravane, aide: aideView })[i.dataset.k]());
+}
+function verifView(){
+  const firstDate = ref => S.actes.filter(a => a.ref === ref).map(a => a.date).sort()[0] || '';
+  const mal = S.enfants.map(e => { const d = firstDate(e.ref), lj = lieuDuJour(d); return { e, d, lj }; }).filter(x => x.lj && x.lj !== x.e.lieu);
+  const gm = {}; for (const x of mal){ const k = x.d + '|' + x.e.lieu + '|' + x.lj; (gm[k] ||= { d: x.d, from: x.e.lieu, to: x.lj, list: [] }).list.push(x); }
+  const grp = Object.values(gm).sort((a, b) => b.list.length - a.list.length);
+  const groups = {}; for (const e of S.enfants){ const k = e.nom + '|' + e.lieu; (groups[k] ||= []).push(e); }
+  const dups = Object.values(groups).filter(g => g.length > 1);
+  const neg = stock().filter(r => r.reste < 0);
+  openSheet('Vérifier les données', `
+    <h3>Lieu différent du planning (${mal.length})</h3>
+    <p class="note">Enfants soignés un jour où le planning indique un autre lieu, regroupés par journée. Corrigez seulement les groupes qui sont des erreurs (la REF ne change pas). Ce n'est pas forcément une erreur : un enfant peut avoir été saisi le lendemain.</p>
+    <div class="list">${grp.map((g, i) => `<div class="card"><b>${g.list.length} enfant(s) soigné(s) le ${fd(g.d)}</b><div class="sub" style="margin:4px 0 8px">Enregistré(s) : ${esc(lieuNom(g.from))} · Planning du jour : ${esc(lieuNom(g.to))}<br>${g.list.map(x => esc(x.e.ref)).join(', ')}</div><button class="btn small" data-g="${i}">Mettre ces ${g.list.length} enfant(s) à ${esc(lieuNom(g.to))}</button><div class="cfg"></div></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>
+    <h3>Doublons possibles (${dups.length})</h3>
+    <div class="list">${dups.map(g => `<div class="item" data-ref="${esc(g[0].ref)}"><div class="grow"><b>${esc(g[0].nom)}</b><div class="sub">${g.map(e => esc(e.ref) + (e.annee ? ' (' + esc(e.annee) + ')' : '') + ' · ' + S.actes.filter(a => a.ref === e.ref).length + ' acte(s)').join(' — ')}</div></div></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>
+    <h3>Stock négatif (${neg.length})</h3>
+    <p class="note">Produit remis sans entrée : ajoutez la réception dans Pharmacie → Entrées, ou vérifiez que le même produit n'a pas été créé sous deux noms.</p>
+    <div class="list">${neg.map(r => `<div class="item" style="cursor:default"><div class="grow"><b>${esc(r.nom)}</b><div class="sub">reçu ${r.recu} · sorti ${r.remis + r.distrib}</div></div><span class="pill alert">${r.reste}</span></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>`, b => {
+    const apply = list => { list.forEach(x => { x.e.lieu = x.lj; }); save(); closeSheet(); verifView(); toast(list.length + ' enfant(s) corrigé(s)'); };
+    b.querySelectorAll('[data-g]').forEach(btn => btn.onclick = () => { const g = grp[+btn.dataset.g];
+      confirmInline(btn.parentElement.querySelector('.cfg'), `Confirmer : ${g.list.length} enfant(s) passent à ${lieuNom(g.to)}.`, () => apply(g.list)); });
+    b.querySelectorAll('.item[data-ref]').forEach(i => i.onclick = () => enfantDetail(i.dataset.ref));
+  });
 }
 function caravaneForm(){
   const c = S.caravane;
