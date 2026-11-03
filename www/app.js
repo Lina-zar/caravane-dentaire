@@ -1,6 +1,6 @@
 /* Caravane Dentaire — application hors ligne (PWA). Données stockées sur le téléphone. */
 'use strict';
-const VERSION = '1.2';
+const VERSION = '1.3';
 const KEY = 'caravane-dentaire-v1';
 
 /* ---------- Listes de référence ---------- */
@@ -218,6 +218,7 @@ function viewBilan(v){
     <h3>Par spécialité</h3><div class="card">${bars(countBy(st.actes, a => a.specialite), st.actes.length)}</div>
     <h3>Enfants soignés par lieu</h3><div class="card">${bars(countBy(st.enfants, e => lieuNom(e.lieu)))}</div>
     <h3>Produits remis par catégorie</h3><div class="card">${bars(sumBy(st.remises, r => prod(r.produit).cat, r => +r.qte || 1), st.unites)}</div>
+    <h3>Médicaments et produits remis</h3><div class="card">${bars(sumBy(st.remises, r => r.produit, r => +r.qte || 1), st.unites)}</div>
     <h3>État de santé (enfants soignés)</h3><div class="card">
       <div class="sub" style="margin-bottom:4px">Maladies chroniques</div>${bars(countBy(st.enfants, e => e.maladie !== 'Aucune' && e.maladie))}
       <div class="sub" style="margin:10px 0 4px">Handicaps / déficiences</div>${bars(countBy(st.enfants, e => e.handicap !== 'Aucun' && e.handicap))}
@@ -254,7 +255,7 @@ function viewEnfants(v){
     <div class="list">${list.map(e => { const n = S.actes.filter(a => a.ref === e.ref).length, h = sante(e);
       return `<div class="item" data-ref="${esc(e.ref)}"><div class="ref">${esc(e.ref)}</div><div class="grow"><div><b>${esc(e.nom)}</b></div>
       <div class="sub">${e.annee ? age(e) + ' ans · ' : ''}${esc(lieuNom(e.lieu))}</div>${h.length ? `<div style="margin-top:4px"><span class="pill alert">${esc(h.join(' · '))}</span></div>` : ''}</div>
-      <span class="pill${n ? ' ok' : ''}">${n} acte${n > 1 ? 's' : ''}</span></div>`; }).join('') || '<div class="empty">Aucun enfant. Appuyez sur « + Enfant » pour commencer.</div>'}</div>
+      <div style="text-align:right"><span class="pill${n ? ' ok' : ''}">${n} acte${n > 1 ? 's' : ''}</span>${S.remises.some(r => r.ref === e.ref) ? '<div style="margin-top:4px"><span class="pill">💊 médicament</span></div>' : ''}</div></div>`; }).join('') || '<div class="empty">Aucun enfant. Appuyez sur « + Enfant » pour commencer.</div>'}</div>
     <button class="btn fab" id="add">+ Enfant</button>`;
   const qi = v.querySelector('#q');
   qi.oninput = () => { recherche = qi.value; const pos = qi.selectionStart; render(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); };
@@ -547,6 +548,8 @@ function aideView(){
 
 /* ---------- Export Excel / sauvegarde ---------- */
 function workbook(){
+  const medsOf = ref => S.remises.filter(r => r.ref === ref).map(r => r.produit + ' x' + (r.qte || 1)).join(' ; ');
+  const seenM = new Set();
   const wb = XLSX.utils.book_new();
   const add = (name, rows) => { const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ '': 'Aucune donnée' }]);
     const keys = Object.keys(rows[0] || { '': '' }); ws['!cols'] = keys.map(k => ({ wch: Math.min(45, Math.max(10, k.length + 2, ...rows.map(r => String(r[k] ?? '').length + 1))) })); XLSX.utils.book_append_sheet(wb, ws, name); };
@@ -560,15 +563,16 @@ function workbook(){
     ...countBy(st.actes, a => typeActe(a.nature) || 'Autre').map(([k, n]) => ({ Indicateur: 'Type : ' + k, Valeur: n })), { Indicateur: '', Valeur: '' },
     ...countBy(st.actes, a => a.specialite).map(([k, n]) => ({ Indicateur: 'Spécialité : ' + k, Valeur: n })), { Indicateur: '', Valeur: '' },
     ...countBy(st.enfants, e => lieuNom(e.lieu)).map(([k, n]) => ({ Indicateur: 'Lieu : ' + k, Valeur: n })), { Indicateur: '', Valeur: '' },
-    ...sumBy(st.remises, r => prod(r.produit).cat, r => +r.qte || 1).map(([k, n]) => ({ Indicateur: 'Produits remis : ' + k, Valeur: n }))];
+    ...sumBy(st.remises, r => prod(r.produit).cat, r => +r.qte || 1).map(([k, n]) => ({ Indicateur: 'Produits remis : ' + k, Valeur: n })), { Indicateur: '', Valeur: '' },
+    ...sumBy(st.remises, r => r.produit, r => +r.qte || 1).map(([k, n]) => ({ Indicateur: 'Médicament / produit : ' + k, Valeur: n }))];
   add('Bilan', bil);
   add('Par journée', [...new Set([...S.planning.map(p => p.date), ...S.actes.map(a => a.date)].filter(Boolean))].sort().map(d => { const s = stats(d), p = S.planning.find(x => x.date === d) || {};
     return { Date: fd(d), Jour: jour(d), Lieu: p.lieu ? lieuNom(p.lieu) : '', Horaires: p.horaires || '', Responsable: p.resp || '', 'Participants présents': S.participants.filter(x => (x.presences || []).includes(d)).length, 'Enfants soignés': s.enfants.length, Actes: s.actes.length }; }));
   add('Enfants', S.enfants.slice().sort((a, b) => (a.lieu + a.ref).localeCompare(b.lieu + b.ref)).map(e => ({ REF: e.ref, Lieu: lieuNom(e.lieu), 'Nom et prénom': e.nom, 'Année de naissance': e.annee ? +e.annee : '', Âge: age(e), Sexe: e.sexe || '',
     'Maladie chronique': e.maladie || '', 'Handicap / déficience': e.handicap || '', Allergie: e.allergie || '', 'Précision allergie': e.allergiePrecision || '',
-    'Dents soignées': S.actes.filter(a => a.ref === e.ref && a.dent).length, "Nombre d'actes": S.actes.filter(a => a.ref === e.ref).length, Observation: e.obs || '' })));
+    'Dents soignées': S.actes.filter(a => a.ref === e.ref && a.dent).length, "Nombre d'actes": S.actes.filter(a => a.ref === e.ref).length, 'Médicaments remis': medsOf(e.ref), Observation: e.obs || '' })));
   add('Actes', S.actes.slice().sort((a, b) => (a.date + a.ref).localeCompare(b.date + b.ref)).map(a => { const e = enfantByRef(a.ref) || {};
-    return { REF: a.ref, 'Nom et prénom': e.nom || '', Âge: e.annee ? age(e) : '', Date: fd(a.date), Dent: a.dent || '', "Nature d'acte": a.nature, "Type d'acte": typeActe(a.nature), Spécialité: a.specialite || '', Observation: a.obs || '', 'État de santé': sante(e).join(' ; ') }; }));
+    return { REF: a.ref, 'Nom et prénom': e.nom || '', Âge: e.annee ? age(e) : '', Date: fd(a.date), Dent: a.dent || '', "Nature d'acte": a.nature, "Type d'acte": typeActe(a.nature), Spécialité: a.specialite || '', "Médicaments remis à l'enfant": seenM.has(a.ref) ? '' : (seenM.add(a.ref), medsOf(a.ref)), Observation: a.obs || '', 'État de santé': sante(e).join(' ; ') }; }));
   add('Produits remis', S.remises.map(r => { const e = enfantByRef(r.ref) || {}; return { REF: r.ref, 'Nom et prénom': e.nom || '', Date: fd(r.date), Produit: r.produit, Catégorie: prod(r.produit).cat, Quantité: +r.qte || 1, 'État de santé': sante(e).join(' ; ') }; }));
   add('Stock', stock().filter(r => r.recu || r.remis || r.distrib).map(r => ({ Produit: r.nom, Catégorie: r.cat, Type: r.type, Reçu: r.recu, 'Remis aux enfants': r.remis, 'Distributions groupées': r.distrib, 'Stock restant': r.reste, 'Péremption la plus proche': fd(r.per), Alerte: r.alerte ? r.alerte[1] : '', 'Valeur reçue (DH)': Math.round(r.valeur * 100) / 100 })));
   add('Entrées', S.entrees.map(x => ({ Date: fd(x.date), 'N° BL': x.bl || '', 'Fournisseur / donateur': x.fournisseur || '', Produit: x.produit, Lot: x.lot || '', Péremption: fd(x.peremption), Quantité: +x.qte || 0, 'Prix unitaire (DH)': +x.pu || 0, 'Montant (DH)': Math.round((+x.qte || 0) * (+x.pu || 0) * 100) / 100 })));
