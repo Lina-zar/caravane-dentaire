@@ -1,6 +1,6 @@
 /* Caravane Dentaire — application hors ligne (PWA). Données stockées sur le téléphone. */
 'use strict';
-const VERSION = '1.3';
+const VERSION = '1.4';
 const KEY = 'caravane-dentaire-v1';
 
 /* ---------- Listes de référence ---------- */
@@ -450,6 +450,23 @@ function viewPlus(v){
   v.innerHTML = `<div class="list menu">${items.map(([k, l, s]) => `<div class="item" data-k="${k}"><div class="grow"><b>${l}</b><div class="sub">${esc(s)}</div></div><span aria-hidden="true">›</span></div>`).join('')}</div>`;
   v.querySelectorAll('.item').forEach(i => i.onclick = () => ({ caravane: caravaneForm, lieux: lieuxView, planning: planningView, actes: actesListeView, export: exportExcel, verif: verifView, backup: backupView, reglages: reglagesForm, nouvelle: nouvelleCaravane, aide: aideView })[i.dataset.k]());
 }
+function renumber(e, lieu){
+  const old = e.ref; e.lieu = lieu; e.ref = nextRef(lieu);
+  e.obs = (e.obs ? e.obs + ' ; ' : '') + 'Ancienne REF ' + old;
+  S.actes.forEach(a => { if (a.ref === old) a.ref = e.ref; }); S.remises.forEach(r => { if (r.ref === old) r.ref = e.ref; });
+}
+const refNum = e => +e.ref.slice(0, 3);
+function fusion(group){
+  const keep = group.slice().sort((a, b) => S.actes.filter(x => x.ref === b.ref).length - S.actes.filter(x => x.ref === a.ref).length || refNum(a) - refNum(b))[0];
+  for (const e of group){ if (e === keep) continue;
+    for (const k of ['annee','sexe','allergiePrecision']) if (!keep[k] && e[k]) keep[k] = e[k];
+    for (const [k, none] of [['maladie','Aucune'],['handicap','Aucun'],['allergie','Aucune']]) if ((!keep[k] || keep[k] === none) && e[k] && e[k] !== none) keep[k] = e[k];
+    keep.obs = (keep.obs ? keep.obs + ' ; ' : '') + 'Fiche ' + e.ref + ' fusionnée';
+    S.actes.forEach(a => { if (a.ref === e.ref) a.ref = keep.ref; }); S.remises.forEach(r => { if (r.ref === e.ref) r.ref = keep.ref; });
+    S.enfants = S.enfants.filter(x => x !== e);
+  }
+  return keep;
+}
 function verifView(){
   const firstDate = ref => S.actes.filter(a => a.ref === ref).map(a => a.date).sort()[0] || '';
   const mal = S.enfants.map(e => { const d = firstDate(e.ref), lj = lieuDuJour(d); return { e, d, lj }; }).filter(x => x.lj && x.lj !== x.e.lieu);
@@ -458,19 +475,26 @@ function verifView(){
   const groups = {}; for (const e of S.enfants){ const k = e.nom + '|' + e.lieu; (groups[k] ||= []).push(e); }
   const dups = Object.values(groups).filter(g => g.length > 1);
   const neg = stock().filter(r => r.reste < 0);
+  const badRef = S.enfants.filter(e => e.ref.split('/')[1] !== e.lieu).sort((a, b) => refNum(a) - refNum(b));
   openSheet('Vérifier les données', `
     <h3>Lieu différent du planning (${mal.length})</h3>
-    <p class="note">Enfants soignés un jour où le planning indique un autre lieu, regroupés par journée. Corrigez seulement les groupes qui sont des erreurs (la REF ne change pas). Ce n'est pas forcément une erreur : un enfant peut avoir été saisi le lendemain.</p>
+    <p class="note">Enfants soignés un jour où le planning indique un autre lieu, regroupés par journée. Corrigez seulement les groupes qui sont des erreurs : l'enfant change de lieu et reçoit une REF du bon lieu (l'ancienne REF est notée dans l'observation). Ce n'est pas forcément une erreur : un enfant peut avoir été saisi le lendemain.</p>
     <div class="list">${grp.map((g, i) => `<div class="card"><b>${g.list.length} enfant(s) soigné(s) le ${fd(g.d)}</b><div class="sub" style="margin:4px 0 8px">Enregistré(s) : ${esc(lieuNom(g.from))} · Planning du jour : ${esc(lieuNom(g.to))}<br>${g.list.map(x => esc(x.e.ref)).join(', ')}</div><button class="btn small" data-g="${i}">Mettre ces ${g.list.length} enfant(s) à ${esc(lieuNom(g.to))}</button><div class="cfg"></div></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>
+    <h3>REF qui ne correspond pas au lieu (${badRef.length})</h3>
+    <p class="note">Le lieu est juste mais la REF finit par un autre code (ex. un enfant de Dchar Braksa en /01). Renuméroter leur donne une REF du bon lieu ; l'ancienne est notée dans l'observation.</p>
+    ${badRef.length ? `<div class="card"><div class="sub" style="margin-bottom:8px">${badRef.map(e => esc(e.ref) + ' → ' + esc(lieuNom(e.lieu))).slice(0, 12).join(' · ')}${badRef.length > 12 ? ' …' : ''}</div><button class="btn small" id="renum">Renuméroter les ${badRef.length} enfant(s)</button><div id="cfr"></div></div>` : '<div class="empty">Rien à signaler.</div>'}
     <h3>Doublons possibles (${dups.length})</h3>
-    <div class="list">${dups.map(g => `<div class="item" data-ref="${esc(g[0].ref)}"><div class="grow"><b>${esc(g[0].nom)}</b><div class="sub">${g.map(e => esc(e.ref) + (e.annee ? ' (' + esc(e.annee) + ')' : '') + ' · ' + S.actes.filter(a => a.ref === e.ref).length + ' acte(s)').join(' — ')}</div></div></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>
+    <p class="note">Même nom dans le même lieu. Si c'est le même enfant, fusionnez : tous ses actes et médicaments sont regroupés sur une seule fiche.</p>
+    <div class="list">${dups.map((g, i) => `<div class="card"><b>${esc(g[0].nom)}</b><div class="sub" style="margin:4px 0 8px">${g.map(e => esc(e.ref) + (e.annee ? ' (né(e) ' + esc(e.annee) + ')' : '') + ' : ' + (S.actes.filter(a => a.ref === e.ref).map(a => esc(a.nature) + (a.dent ? ' ' + esc(a.dent) : '')).join(', ') || 'aucun acte') + (S.remises.some(r => r.ref === e.ref) ? ' + médicament' : '')).join('<br>')}</div><button class="btn small" data-fu="${i}">Même enfant : fusionner</button><div class="cff"></div></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>
     <h3>Stock négatif (${neg.length})</h3>
     <p class="note">Produit remis sans entrée : ajoutez la réception dans Pharmacie → Entrées, ou vérifiez que le même produit n'a pas été créé sous deux noms.</p>
     <div class="list">${neg.map(r => `<div class="item" style="cursor:default"><div class="grow"><b>${esc(r.nom)}</b><div class="sub">reçu ${r.recu} · sorti ${r.remis + r.distrib}</div></div><span class="pill alert">${r.reste}</span></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>`, b => {
-    const apply = list => { list.forEach(x => { x.e.lieu = x.lj; }); save(); closeSheet(); verifView(); toast(list.length + ' enfant(s) corrigé(s)'); };
+    const apply = list => { list.slice().sort((a, b) => refNum(a.e) - refNum(b.e)).forEach(x => renumber(x.e, x.lj)); save(); closeSheet(); verifView(); toast(list.length + ' enfant(s) corrigé(s) et renuméroté(s)'); };
     b.querySelectorAll('[data-g]').forEach(btn => btn.onclick = () => { const g = grp[+btn.dataset.g];
       confirmInline(btn.parentElement.querySelector('.cfg'), `Confirmer : ${g.list.length} enfant(s) passent à ${lieuNom(g.to)}.`, () => apply(g.list)); });
-    b.querySelectorAll('.item[data-ref]').forEach(i => i.onclick = () => enfantDetail(i.dataset.ref));
+    const rn = b.querySelector('#renum'); if (rn) rn.onclick = () => confirmInline(b.querySelector('#cfr'), `Renuméroter ${badRef.length} enfant(s) ?`, () => { badRef.forEach(e => renumber(e, e.lieu)); save(); closeSheet(); verifView(); toast(badRef.length + ' REF corrigée(s)'); });
+    b.querySelectorAll('[data-fu]').forEach(btn => btn.onclick = () => { const g = dups[+btn.dataset.fu];
+      confirmInline(btn.parentElement.querySelector('.cff'), `Regrouper ces ${g.length} fiches en une seule ?`, () => { const k = fusion(g); save(); closeSheet(); verifView(); toast('Fiches regroupées sous ' + k.ref); }); });
   });
 }
 function caravaneForm(){
@@ -573,7 +597,7 @@ function workbook(){
     'Dents soignées': S.actes.filter(a => a.ref === e.ref && a.dent).length, "Nombre d'actes": S.actes.filter(a => a.ref === e.ref).length, 'Médicaments remis': medsOf(e.ref), Observation: e.obs || '' })));
   add('Actes', S.actes.slice().sort((a, b) => (a.date + a.ref).localeCompare(b.date + b.ref)).map(a => { const e = enfantByRef(a.ref) || {};
     return { REF: a.ref, 'Nom et prénom': e.nom || '', Âge: e.annee ? age(e) : '', Date: fd(a.date), Dent: a.dent || '', "Nature d'acte": a.nature, "Type d'acte": typeActe(a.nature), Spécialité: a.specialite || '', "Médicaments remis à l'enfant": seenM.has(a.ref) ? '' : (seenM.add(a.ref), medsOf(a.ref)), Observation: a.obs || '', 'État de santé': sante(e).join(' ; ') }; }));
-  add('Produits remis', S.remises.map(r => { const e = enfantByRef(r.ref) || {}; return { REF: r.ref, 'Nom et prénom': e.nom || '', Date: fd(r.date), Produit: r.produit, Catégorie: prod(r.produit).cat, Quantité: +r.qte || 1, 'État de santé': sante(e).join(' ; ') }; }));
+  add('Produits remis', S.remises.slice().sort((a, b) => { const ea = enfantByRef(a.ref) || {}, eb = enfantByRef(b.ref) || {}; return (ea.lieu || '').localeCompare(eb.lieu || '') || a.date.localeCompare(b.date) || a.ref.localeCompare(b.ref); }).map(r => { const e = enfantByRef(r.ref) || {}; return { REF: r.ref, Lieu: lieuNom(e.lieu), 'Nom et prénom': e.nom || '', Date: fd(r.date), Produit: r.produit, Catégorie: prod(r.produit).cat, Quantité: +r.qte || 1, 'État de santé': sante(e).join(' ; ') }; }));
   add('Stock', stock().filter(r => r.recu || r.remis || r.distrib).map(r => ({ Produit: r.nom, Catégorie: r.cat, Type: r.type, Reçu: r.recu, 'Remis aux enfants': r.remis, 'Distributions groupées': r.distrib, 'Stock restant': r.reste, 'Péremption la plus proche': fd(r.per), Alerte: r.alerte ? r.alerte[1] : '', 'Valeur reçue (DH)': Math.round(r.valeur * 100) / 100 })));
   add('Entrées', S.entrees.map(x => ({ Date: fd(x.date), 'N° BL': x.bl || '', 'Fournisseur / donateur': x.fournisseur || '', Produit: x.produit, Lot: x.lot || '', Péremption: fd(x.peremption), Quantité: +x.qte || 0, 'Prix unitaire (DH)': +x.pu || 0, 'Montant (DH)': Math.round((+x.qte || 0) * (+x.pu || 0) * 100) / 100 })));
   add('Distributions', S.distributions.map(x => ({ Date: fd(x.date), Lieu: lieuNom(x.lieu), Produit: x.produit, Catégorie: prod(x.produit).cat, Quantité: +x.qte || 0, Bénéficiaires: x.beneficiaires || '' })));
