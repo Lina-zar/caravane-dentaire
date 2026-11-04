@@ -1,6 +1,6 @@
 /* Caravane Dentaire — application hors ligne (PWA). Données stockées sur le téléphone. */
 'use strict';
-const VERSION = '1.4';
+const VERSION = '1.5';
 const KEY = 'caravane-dentaire-v1';
 
 /* ---------- Listes de référence ---------- */
@@ -320,7 +320,7 @@ function enfantDetail(ref, openActe){
     body.querySelector('#a2').onclick = () => remiseForm(e);
     body.querySelector('#ed').onclick = () => enfantForm(e);
     body.querySelectorAll('[data-del]').forEach(b => b.onclick = () => confirmInline(b.closest('.act'), 'Supprimer cet acte ?', () => { S.actes = S.actes.filter(a => a.id !== b.dataset.del); save(); closeSheet(); enfantDetail(ref); }));
-    body.querySelectorAll('[data-delr]').forEach(b => b.onclick = () => confirmInline(b.closest('.act'), 'Supprimer ?', () => { S.remises = S.remises.filter(r => r.id !== b.dataset.delr); save(); closeSheet(); enfantDetail(ref); }));
+    body.querySelectorAll('[data-delr]').forEach(b => b.onclick = () => confirmInline(b.closest('.act'), 'Supprimer ce produit ?', () => { S.remises = S.remises.filter(r => r.id !== b.dataset.delr); save(); closeSheet(); enfantDetail(ref); }));
     body.querySelector('#dl').onclick = () => confirmInline(body.querySelector('#cf'), `Supprimer ${e.nom} et ses ${actes.length} actes ?`, () => {
       S.enfants = S.enfants.filter(x => x.id !== e.id); S.actes = S.actes.filter(a => a.ref !== ref); S.remises = S.remises.filter(r => r.ref !== ref); save(); closeAll(); });
   });
@@ -478,7 +478,7 @@ function verifView(){
   const badRef = S.enfants.filter(e => e.ref.split('/')[1] !== e.lieu).sort((a, b) => refNum(a) - refNum(b));
   openSheet('Vérifier les données', `
     <h3>Lieu différent du planning (${mal.length})</h3>
-    <p class="note">Enfants soignés un jour où le planning indique un autre lieu, regroupés par journée. Corrigez seulement les groupes qui sont des erreurs : l'enfant change de lieu et reçoit une REF du bon lieu (l'ancienne REF est notée dans l'observation). Ce n'est pas forcément une erreur : un enfant peut avoir été saisi le lendemain.</p>
+    <p class="note">Enfants dont la date ne correspond pas au lieu du planning. Attention : si les fiches ont été saisies plus tard à partir du papier, la date est celle de la saisie et ce n'est pas une erreur. Ne corrigez que si le lieu est vraiment faux.</p>
     <div class="list">${grp.map((g, i) => `<div class="card"><b>${g.list.length} enfant(s) soigné(s) le ${fd(g.d)}</b><div class="sub" style="margin:4px 0 8px">Enregistré(s) : ${esc(lieuNom(g.from))} · Planning du jour : ${esc(lieuNom(g.to))}<br>${g.list.map(x => esc(x.e.ref)).join(', ')}</div><button class="btn small" data-g="${i}">Mettre ces ${g.list.length} enfant(s) à ${esc(lieuNom(g.to))}</button><div class="cfg"></div></div>`).join('') || '<div class="empty">Rien à signaler.</div>'}</div>
     <h3>REF qui ne correspond pas au lieu (${badRef.length})</h3>
     <p class="note">Le lieu est juste mais la REF finit par un autre code (ex. un enfant de Dchar Braksa en /01). Renuméroter leur donne une REF du bon lieu ; l'ancienne est notée dans l'observation.</p>
