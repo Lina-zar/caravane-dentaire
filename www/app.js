@@ -1,6 +1,6 @@
 /* Caravane Dentaire — application hors ligne (PWA). Données stockées sur le téléphone. */
 'use strict';
-const VERSION = '1.5';
+const VERSION = '1.6';
 const KEY = 'caravane-dentaire-v1';
 
 /* ---------- Listes de référence ---------- */
@@ -54,20 +54,14 @@ const CATALOGUE = [
 /* ---------- Données ---------- */
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 function defaultState(){
-  const fo = 'BOTTU – Direct. Glob. Dons aux associations';
-  const bl = [['BL2610-16691','BISPIRAZOLE 1,5 MUI/250 MG CP 15','R159','2028-01-01',25,41.99],['BL2610-16691','COTIPRED 20 MG CP EFF 20','R1212','2029-04-01',25,23.81],
-    ['BL2610-16691','DOLIPRANE 150 MG SACH 12','P1715-2','2027-05-01',25,5.40],['BL2610-16691','DOLIPRANE 300 MG SACH 12','R1392','2028-04-01',25,7.15],
-    ['BL2610-16691','DOLIPRANE 500 MG CP 20','R324','2029-01-01',25,5.73],['BL2610-16691','PRAZOL 20 MG GL 7','R1406-3','2028-10-01',25,16.69],
-    ['BL2610-16689','AZIX 40 MG/ML SUSP 1500 MG','R1393','2029-04-01',25,44.50]];
   return {
     version: VERSION,
     reglages: { poste: '', refDepart: 1 },
-    caravane: { nom: 'Caravane bucco-dentaire Khouribga et régions', type: 'Ponctuelle – plusieurs jours', ville: 'Khouribga et régions',
-      debut: '2026-10-26', fin: '2026-10-30', association: 'Enfance Sourire', responsable: '', tel: '' },
-    lieux: [{ code: '01', nom: '', type: 'École', ville: 'Khouribga', contact: '', tel: '' }],
-    planning: ['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30'].map(d => ({ id: 'pl-' + d, date: d, lieu: '', horaires: '', resp: '' })),
+    caravane: { nom: '', type: 'Ponctuelle – plusieurs jours', ville: '', debut: '', fin: '', association: 'Enfance Sourire', responsable: '', tel: '' },
+    lieux: [],
+    planning: [],
     participants: [], enfants: [], actes: [], remises: [],
-    entrees: bl.map(([b,p,l,per,q,pu]) => ({ id: 'bl-' + b + '-' + l, date: '2026-10-23', bl: b, fournisseur: fo, produit: p, lot: l, peremption: per, qte: q, pu })),
+    entrees: [],
     distributions: [],
     produits: CATALOGUE.map(([nom,cat,type]) => ({ nom, cat, type })),
     actesListe: ACTES.map(([nom,type]) => ({ nom, type }))
@@ -200,7 +194,10 @@ function viewBilan(v){
   const st = stats(filtreJour);
   const santeE = st.enfants.filter(e => sante(e).length);
   const ageMoy = st.enfants.filter(e => e.annee).length ? (st.enfants.filter(e => e.annee).reduce((s, e) => s + age(e), 0) / st.enfants.filter(e => e.annee).length) : 0;
-  v.innerHTML = `
+  const fini = S.caravane.fin && S.caravane.fin < todayISO() && S.enfants.length;
+  const vide = !S.caravane.nom && !S.enfants.length;
+  v.innerHTML = `${fini ? `<div class="banner">La caravane « ${esc(S.caravane.nom || 'précédente')} » est terminée (${fd(S.caravane.fin)}). Pour une nouvelle action : exportez le bilan, puis Plus → Nouvelle caravane.</div>` : ''}
+    ${vide ? `<div class="card"><b>Préparer l'action</b><p class="note">Plus → La caravane (nom et dates), puis Lieux et Planning. Ensuite, la saisie des enfants se fait dans l'onglet Enfants.</p><button class="btn block" id="prep">Renseigner la caravane</button></div>` : ''}
     <div class="chips" style="margin-bottom:12px">${['', ...days].map(d => `<button class="chip${d === filtreJour ? ' on' : ''}" data-d="${d}">${d ? jour(d).slice(0,3) + ' ' + fdShort(d) : 'Toute la caravane'}</button>`).join('')}</div>
     <div class="kpis">
       <div class="kpi main"><div class="v">${st.enfants.length}</div><div class="l">Enfants soignés</div></div>
@@ -227,6 +224,7 @@ function viewBilan(v){
       ${days.map(d => { const s = stats(d); const pl = S.planning.find(p => p.date === d); return `<tr><td>${jour(d).slice(0,3)} ${fdShort(d)}</td><td>${esc(pl && pl.lieu ? lieuNom(pl.lieu) : '')}</td><td class="r">${s.enfants.length}</td><td class="r">${s.actes.length}</td></tr>`; }).join('') || '<tr><td colspan="4" class="empty">Aucune journée</td></tr>'}</table></div>`}`;
   v.querySelectorAll('.chip').forEach(c => c.onclick = () => { filtreJour = c.dataset.d; render(); });
   v.querySelector('#share-sum').onclick = () => shareText(resume(st));
+  const pr = v.querySelector('#prep'); if (pr) pr.onclick = caravaneForm;
 }
 function resume(st){
   const lines = [`${S.caravane.association ? S.caravane.association + ' — ' : ''}${S.caravane.nom || 'Caravane dentaire'}${filtreJour ? ' — ' + jour(filtreJour) + ' ' + fd(filtreJour) : ''}`,
@@ -264,7 +262,8 @@ function viewEnfants(v){
   v.querySelector('#add').onclick = () => enfantForm();
 }
 function enfantForm(e){
-  const isNew = !e; e = e || { lieu: filtreLieu || lieuDuJour() || S.reglages.dernierLieu || (S.lieux[0] && S.lieux[0].code) || '01' };
+  const okL = c => c && S.lieux.some(l => l.code === c) ? c : '';
+  const isNew = !e; e = e || { lieu: okL(filtreLieu) || okL(lieuDuJour()) || okL(S.reglages.dernierLieu) || (S.lieux[0] && S.lieux[0].code) || '01' };
   if (!S.lieux.length){ toast('Ajoutez d\'abord un lieu dans « Plus » → Lieux.'); return; }
   openSheet(isNew ? 'Nouvel enfant' : 'Modifier ' + e.ref, `<form id="fe">
     <div id="lieu-warn"></div>
@@ -550,15 +549,19 @@ function reglagesForm(){
 }
 function nouvelleCaravane(){
   openSheet('Nouvelle caravane', `<p>Avant de commencer une nouvelle caravane, exportez le bilan en Excel et faites une sauvegarde.</p>
-    <p class="note">Seront vidés : enfants, actes, produits remis, distributions, planning et présences. Seront gardés : les lieux, l'équipe, la liste des produits, les actes et le stock (les entrées et ce qui a été remis restent comptés).</p>
-    <button class="btn ghost block" id="ex">Exporter le bilan en Excel d'abord</button><div style="height:10px"></div><button class="btn danger block" id="go">Vider et commencer une nouvelle caravane</button><div id="cf"></div>`, b => {
+    <p class="note">Seront vidés : enfants, actes, produits remis, distributions, planning et présences. Seront gardés : l'équipe, la liste des produits et des actes, et le stock restant (reporté automatiquement).</p>
+    <label class="f" style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="vl" checked style="width:auto;min-height:0"><span style="margin:0">Effacer aussi les lieux (les écoles de la caravane précédente)</span></label>
+    <button class="btn ghost block" id="ex">Exporter le bilan en Excel d'abord</button><div style="height:10px"></div><button class="btn ghost block" id="sv">Envoyer une sauvegarde d'abord</button><div style="height:10px"></div><button class="btn danger block" id="go">Vider et commencer une nouvelle caravane</button><div id="cf"></div>`, b => {
+    b.querySelector('#sv').onclick = sendBackup;
     b.querySelector('#ex').onclick = exportExcel;
     b.querySelector('#go').onclick = () => confirmInline(b.querySelector('#cf'), 'Confirmer : les enfants et actes de cette caravane seront effacés de ce téléphone.', () => {
       const st = stock();
       S.entrees = st.filter(r => r.reste > 0).map(r => ({ id: uid(), date: todayISO(), bl: 'Report de stock', fournisseur: 'Stock caravane précédente', produit: r.nom, lot: '', peremption: r.per, qte: r.reste, pu: 0 }));
       Object.assign(S, { enfants: [], actes: [], remises: [], distributions: [], planning: [] });
+      if (b.querySelector('#vl').checked) S.lieux = [];
       S.participants.forEach(p => p.presences = []);
-      S.caravane = { nom: '', type: CTYPES[0], ville: '', debut: '', fin: '', association: S.caravane.association, responsable: '', tel: '' };
+      delete S.reglages.dernierLieu; filtreLieu = null; filtreJour = ''; recherche = ''; lastDate = '';
+      S.caravane = { nom: '', type: CTYPES[1], ville: '', debut: '', fin: '', association: S.caravane.association, responsable: '', tel: '' };
       save(); closeAll(); caravaneForm(); toast('Nouvelle caravane prête. Le stock restant a été reporté.');
     });
   });
@@ -630,16 +633,29 @@ function exportExcel(){
 function backupView(){
   openSheet('Sauvegarde et fusion', `<div class="card"><b>Envoyer ma sauvegarde</b><p class="note">Crée un fichier avec toutes les données de ce téléphone, à envoyer à la coordinatrice ou à garder en sécurité. À faire chaque soir.</p><button class="btn block" id="bk">Envoyer ma sauvegarde</button></div>
     <div class="card"><b>Importer une sauvegarde</b><p class="note">Ajoute les données d'un autre téléphone à celles-ci, sans doublons. Rien n'est effacé.</p><label class="btn ghost block" for="imp">Choisir un fichier de sauvegarde</label><input type="file" id="imp" accept=".json,application/json" hidden><div id="res"></div></div>`, b => {
-    b.querySelector('#bk').onclick = () => shareOrDownload(new Blob([JSON.stringify({ app: 'caravane-dentaire', exporte: new Date().toISOString(), poste: S.reglages.poste, data: S })], { type: 'application/json' }),
-      `Sauvegarde_${slug(S.reglages.poste || 'telephone')}_${todayISO()}.json`);
+    b.querySelector('#bk').onclick = sendBackup;
+    const res = b.querySelector('#res');
+    const doMerge = d => { const r = merge(d); save(); render();
+      res.innerHTML = `<p class="pill ok" style="margin-top:10px">Importé : ${r.added} élément(s) ajouté(s)</p>${r.conflicts.length ? `<div class="banner" style="margin-top:8px">${r.conflicts.length} conflit(s) : ${esc(r.conflicts.slice(0, 8).join(', '))}. Vérifiez ces fiches.</div>` : ''}`; };
     b.querySelector('#imp').onchange = async ev => {
-      const f = ev.target.files[0]; if (!f) return;
-      try{ const j = JSON.parse(await f.text()); const r = merge(j.data || j); save();
-        b.querySelector('#res').innerHTML = `<p class="pill ok" style="margin-top:10px">Importé : ${r.added} élément(s) ajouté(s)</p>${r.conflicts.length ? `<div class="banner" style="margin-top:8px">${r.conflicts.length} REF en double avec un autre enfant : ${esc(r.conflicts.slice(0, 8).join(', '))}. Renommez l'une des deux fiches.</div>` : ''}`;
-      }catch(e){ b.querySelector('#res').innerHTML = `<div class="banner" style="margin-top:8px">Ce fichier n'est pas une sauvegarde valide de l'application.</div>`; }
-      ev.target.value = '';
+      const f = ev.target.files[0]; if (!f) return; ev.target.value = '';
+      let d; try{ const j = JSON.parse(await f.text()); d = j.data || j; if (!d || !Array.isArray(d.enfants)) throw 0; }
+      catch(e){ res.innerHTML = `<div class="banner" style="margin-top:8px">Ce fichier n'est pas une sauvegarde valide de l'application.</div>`; return; }
+      const c = d.caravane || {};
+      const deb = S.caravane.debut, fin = S.caravane.fin || S.caravane.debut;
+      const hors = deb ? (d.actes || []).filter(a => a.date && (a.date < deb || a.date > fin)).length : 0;
+      const autre = d.enfants.length && ((c.debut && deb && c.debut !== deb) || (hors && hors >= (d.actes || []).length / 2));
+      if (!autre){ doMerge(d); return; }
+      res.innerHTML = `<div class="banner" style="margin-top:8px">Attention : cette sauvegarde vient d'une autre caravane (« ${esc(c.nom || 'sans nom')} »${c.debut ? ', ' + fd(c.debut) : ''}) avec ${d.enfants.length} enfant(s). Si vous l'importez, ces enfants seront ajoutés à la caravane en cours.</div>
+        <div class="two" style="margin-top:8px"><button class="btn danger" type="button" id="force">Importer quand même</button><button class="btn ghost" type="button" id="stop">Annuler</button></div>`;
+      res.querySelector('#force').onclick = () => doMerge(d);
+      res.querySelector('#stop').onclick = () => { res.innerHTML = ''; };
     };
   });
+}
+function sendBackup(){
+  shareOrDownload(new Blob([JSON.stringify({ app: 'caravane-dentaire', version: VERSION, exporte: new Date().toISOString(), poste: S.reglages.poste, data: S })], { type: 'application/json' }),
+    `Sauvegarde_${slug(S.reglages.poste || 'telephone')}_${todayISO()}.json`);
 }
 function merge(d){
   let added = 0; const conflicts = [];
@@ -651,7 +667,9 @@ function merge(d){
       if (k === 'entrees' && x.bl && S.entrees.some(y => y.bl === x.bl && y.produit === x.produit && (y.lot || '') === (x.lot || ''))) continue;
       S[k].push(x); ids.add(x.id); added++; }
   }
-  for (const l of (d.lieux || [])){ const ex = S.lieux.find(x => x.code === l.code); if (!ex){ S.lieux.push(l); added++; } else if (!ex.nom && l.nom) Object.assign(ex, l); }
+  for (const l of (d.lieux || [])){ const ex = S.lieux.find(x => x.code === l.code); if (!ex){ S.lieux.push(l); added++; } else if (!ex.nom && l.nom) Object.assign(ex, l);
+    else if (l.nom && ex.nom && l.nom.trim().toUpperCase() !== ex.nom.trim().toUpperCase()) conflicts.push('lieu ' + l.code + ' : « ' + l.nom + ' » ici « ' + ex.nom + ' »'); }
+  if (!S.caravane.nom && d.caravane && d.caravane.nom){ Object.assign(S.caravane, d.caravane); }
   for (const p of (d.produits || [])) if (!S.produits.some(x => x.nom === p.nom)){ S.produits.push(p); added++; }
   for (const a of (d.actesListe || [])) if (!S.actesListe.some(x => x.nom === a.nom)){ S.actesListe.push(a); added++; }
   for (const p of S.participants){ const o = (d.participants || []).find(x => x.id === p.id); if (o) p.presences = [...new Set([...(p.presences || []), ...(o.presences || [])])]; }
